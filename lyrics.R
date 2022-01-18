@@ -6,12 +6,18 @@ library(ggplot2)
 library(qdap)
 library(tidyr)
 library(lubridate)
+library(wordcloud2)
+
 
 # Load de data
 data <- read.csv("songLyrics.csv",  sep=';')
 
 # Take only no remix
 data <- subset(data, data$remix== "FALSE")
+# Delete the 'skits' that are not songs
+data <- subset(data, !grepl('^Skit', data$track_title))
+# Delete the notes
+data <- subset(data, data$album_seq!=0)
 
 #Divide date
 data <- separate(data, "album_rd", c("DayRelease", "MonthRelease", "YearRelease"), sep = "/")
@@ -37,24 +43,68 @@ str(data[1, ]$lyrics, nchar.max = 300)
 
 
 #tokenization
-df <- tibble(lyrics = data$lyrics)
-df <- df %>% unnest_tokens(lyrics, lyrics)
+data_words_filtered <- data %>% unnest_tokens(word, lyrics)
 
+#####Data visualization#######
 
-df %>%
-  count(lyrics, sort = TRUE) %>%
-  filter(n > 200) %>%
-  mutate(lyrics = reorder(lyrics, n)) %>%
-  ggplot(aes(lyrics, n)) +
+#Most Frequently Used Words in BTS Lyrics
+data_words_filtered %>%
+  count(word, sort = TRUE) %>%
+  top_n(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
   geom_col(fill = "#800080") +
   xlab(NULL) +
+  ggtitle("Most Frequently Used Words in BTS Lyrics") +
+  ylab("Song Count") +
+  coord_flip()+
+  theme_classic()
+
+#Most Frequently Used Words in BTS Lyrics in a shape
+BTS_words_counts <- data_words_filtered %>%count(word, sort = TRUE) 
+wordcloud2(BTS_words_counts[1:300, ], size = .5,color = "#800080")
+
+#Most Frequently Used Words in BTS Lyrics by album
+popular_words_album <- data_words_filtered %>% 
+  group_by(eng_album_title) %>%
+  count(word, eng_album_title, sort = TRUE) %>%
+  slice(seq_len(8)) %>%
+  ungroup() %>%
+  arrange(eng_album_title,n) %>%
+  mutate(row = row_number()) 
+
+popular_words_album %>%
+  ggplot(aes(row, n, fill = eng_album_title)) +
+  geom_col(show.legend = NULL) +
+  labs(x = NULL, y = "Song Count") +
+  ggtitle("Most Frequently Used Words in BTS Lyrics by album") + 
+  facet_wrap(~eng_album_title, scales = "free", ncol = 5) +
+  scale_x_continuous(  # This handles replacement of row 
+    breaks = popular_words_album$row, # notice need to reuse data frame
+    labels = popular_words_album$word) +
   coord_flip()
 
+#Most Frequently Used Words in BTS Lyrics by year
+popular_words_year <- data_words_filtered %>% 
+  group_by(YearRelease) %>%
+  count(word, YearRelease, sort = TRUE) %>%
+  slice(seq_len(8)) %>%
+  ungroup() %>%
+  arrange(YearRelease,n) %>%
+  mutate(row = row_number()) 
 
+popular_words_year %>%
+  ggplot(aes(row, n, fill = YearRelease)) +
+  geom_col(show.legend = NULL) +
+  labs(x = NULL, y = "Song Count") +
+  ggtitle("Most Frequently Used Words in BTS Lyrics by year") + 
+  facet_wrap(~YearRelease, scales = "free", ncol = 5) +
+  scale_x_continuous(  # This handles replacement of row 
+    breaks = popular_words_year$row, # notice need to reuse data frame
+    labels = popular_words_year$word) +
+  coord_flip()
 
-
-
-#Data visualization
+#Song released by year
 ggplot(data, aes(YearRelease)) +
   geom_bar(fill = "#800080") +
   ggtitle("Song by year") +  
