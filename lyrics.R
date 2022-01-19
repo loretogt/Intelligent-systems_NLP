@@ -7,7 +7,7 @@ library(qdap)
 library(tidyr)
 library(lubridate)
 library(wordcloud2)
-
+library(textdata)
 
 # Load de data
 data <- read.csv("songLyrics.csv",  sep=';')
@@ -18,6 +18,8 @@ data <- subset(data, data$remix== "FALSE")
 data <- subset(data, !grepl('^Skit', data$track_title))
 # Delete the notes
 data <- subset(data, data$album_seq!=0)
+# Delete instrumental songs 
+data <- subset(data, !is.na(data$lang))
 
 #Divide date
 data <- separate(data, "album_rd", c("DayRelease", "MonthRelease", "YearRelease"), sep = "/")
@@ -26,15 +28,14 @@ data <- separate(data, "album_rd", c("DayRelease", "MonthRelease", "YearRelease"
 stopwords = c("yeah" ,"youre" ) 
 
 #Clean the data 
-data$lyrics <- removeWords(data$lyrics, stopwords("english")) #Remove the english stopwords
 data$lyrics <- tolower(data$lyrics) #Makes all text lowercase
+data$lyrics <-replace_contraction(data$lyrics) #Remove contraction the english stopwords
 data$lyrics <- removePunctuation(data$lyrics) #Removes punctuation
 data$lyrics <- removeNumbers(data$lyrics) #remove numerals
-data$lyrics <-replace_contraction(data$lyrics) #Remove contraction the english stopwords
 data$lyrics <- gsub('\\b\\w{1,2}\\b','',data$lyrics) #remove words with 1 or 2 letters
-data$lyrics <- removeWords(data$lyrics,stopwords)#remove the words that i consider stopwords in the domine
+data$lyrics <- removeWords(data$lyrics,stopwords)#remove the words that I consider stopwords in the domine
+data$lyrics <- removeWords(data$lyrics, stopwords("english")) #Remove the english stopwords
 data$lyrics <- stripWhitespace(data$lyrics) #Removes tabs, extaspaces 
-
 
 #stemming
 data$lyrics <- wordStem(data$lyrics,  language = "english")
@@ -46,6 +47,11 @@ str(data[1, ]$lyrics, nchar.max = 300)
 data_words_filtered <- data %>% unnest_tokens(word, lyrics)
 
 #####Data visualization#######
+#Song released by year
+ggplot(data, aes(YearRelease)) +
+  geom_bar(fill = "#800080") +
+  ggtitle("Song by year") +  
+  theme_classic()
 
 #Most Frequently Used Words in BTS Lyrics
 data_words_filtered %>%
@@ -103,9 +109,77 @@ popular_words_year %>%
     breaks = popular_words_year$row, # notice need to reuse data frame
     labels = popular_words_year$word) +
   coord_flip()
+ 
+#sentiment analysis
+data_nrc <- data_words_filtered %>% inner_join(get_sentiments("nrc"))
+data_bing <- data_words_filtered %>%inner_join(get_sentiments("bing"))
+data_afinn <- data_words_filtered %>%inner_join(get_sentiments("afinn"))
 
-#Song released by year
-ggplot(data, aes(YearRelease)) +
-  geom_bar(fill = "#800080") +
-  ggtitle("Song by year") +  
+#General look 
+data_nrc %>%
+  group_by(sentiment) %>%
+  summarise(word_count = n()) %>%
+  ungroup() %>%
+  mutate(sentiment = reorder(sentiment, word_count)) %>%
+  ggplot(aes(sentiment, word_count, fill = -word_count)) +
+  geom_col(fill = "#800080") +
+  ggtitle("NRC sentiment in songs") +
+  ylab("Word Count") +
+  coord_flip()+
   theme_classic()
+
+data_bing %>%
+  group_by(sentiment) %>%
+  summarise(word_count = n()) %>%
+  ungroup() %>%
+  mutate(sentiment = reorder(sentiment, word_count)) %>%
+  ggplot(aes(sentiment, word_count, fill = -word_count)) +
+  geom_col(fill = "#800080") +
+  ggtitle("NRC sentiment in songs") +
+  ylab("Word Count") +
+  coord_flip()+
+  theme_classic()
+
+data_afinn %>%
+  group_by(value) %>%
+  summarise(word_count = n()) %>%
+  ungroup() %>%
+  mutate(value = reorder(value, word_count)) %>%
+  ggplot(aes(factor(value, level = c('-5', '-4', '-3','-2','-1','0','1','2','3','4','5')), word_count, fill = -word_count)) +
+  geom_col(fill = "#800080") +
+  ggtitle("Afinn sentiment in songs") +
+  ylab("Word Count") +
+  xlab("Level of positive/negative") +
+  coord_flip()+
+  theme_classic()
+                 
+# Gruped by album
+sentiment_album_nrc <- data_nrc %>% 
+  group_by(eng_album_title) %>%
+  count(sentiment, eng_album_title, sort = TRUE) %>%
+  slice(seq_len(8)) %>%
+  ungroup() %>%
+  arrange(eng_album_title,n) %>%
+  mutate(row = row_number()) 
+
+sentiment_album_nrc %>%
+  ggplot(aes(row, n, fill = eng_album_title)) +
+  geom_col(show.legend = NULL) +
+  labs(x = NULL, y = "Song Count") +
+  ggtitle("Sentiment in BTS Lyrics by album") + 
+  facet_wrap(~eng_album_title, scales = "free", ncol = 5) +
+  scale_x_continuous(  # This handles replacement of row 
+    breaks = sentiment_album_nrc$row, # notice need to reuse data frame
+    labels = sentiment_album_nrc$sentiment) +
+  coord_flip()
+
+
+sentiment_album_data_bing <-  data_bing %>% group_by(eng_album_title)
+
+ggplot(sentiment_album_data_bing, aes(eng_album_title, fill=sentiment)) +
+  geom_bar(position = "fill",) +
+  ggtitle("Sentiment by album")  +
+  scale_fill_manual(values = c("positive" = "#bf7fbf", "negative" = "#800080")) +
+  theme_classic() + 
+  coord_flip()
+
